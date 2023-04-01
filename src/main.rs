@@ -1,92 +1,14 @@
-use std::{env, fs::File, io::Cursor, path::Path};
+use std::{env, fs::File, path::Path};
 
 use binrw::BinRead;
 
-#[derive(BinRead, Debug)]
-#[br(magic = b"CRAG")]
-struct GarcHeader {
-    header_size: u32,
-    endian: u16,
-    version: u16,
-    chunk_count: u32,
-    data_offset: u32,
-    file_size: u32,
+use crate::garc::GarcFile;
 
-    #[br(pad_before = header_size - 0x18)]
-    _end: (),
-}
+mod garc;
+mod text;
 
-#[derive(BinRead, Debug)]
-#[br(magic = b"OTAF")]
-struct FileAllocationTableOffsets {
-    header_size: u32,
-    entry_count: u16,
-    #[br(pad_before = 2, count = entry_count)]
-    entries: Vec<u32>,
-}
 
-#[derive(BinRead, Debug, Clone, Copy)]
-struct FileSubEntry {
-    start: u32,
-    end: u32,
-    length: u32,
-}
-
-#[derive(Debug)]
-struct FileEntry {
-    entry_bits: u32,
-    entries: [Option<FileSubEntry>; 32],
-}
-
-impl BinRead for FileEntry {
-    type Args<'a> = ();
-
-    fn read_options<R: std::io::Read + std::io::Seek>(
-        reader: &mut R,
-        endian: binrw::Endian,
-        _args: Self::Args<'_>,
-    ) -> binrw::BinResult<Self> {
-        let entry_bits = u32::read_options(reader, endian, ())?;
-        let mut entries: [Option<FileSubEntry>; 32] = Default::default();
-        for (index, entry) in entries.iter_mut().enumerate() {
-            if (entry_bits & (1 << index)) != 0 {
-                *entry = Some(FileSubEntry::read_options(reader, endian, ())?);
-            }
-        }
-        Ok(Self {
-            entry_bits,
-            entries,
-        })
-    }
-}
-
-#[derive(BinRead, Debug)]
-#[br(magic = b"BTAF")]
-struct FileAllocationTableBits {
-    header_size: u32,
-    file_count: u32,
-
-    #[br(count = file_count)]
-    file_entries: Vec<FileEntry>,
-}
-
-#[derive(BinRead, Debug)]
-#[br(magic = b"BMIF")]
-struct FileImageBytes {
-    header_size: u32,
-    data_size: u32,
-    #[br(count = data_size)]
-    data: Vec<u8>,
-}
-
-#[derive(BinRead, Debug)]
-struct GarcFile {
-    header: GarcHeader,
-    fato: FileAllocationTableOffsets,
-    fatb: FileAllocationTableBits,
-    fimb: FileImageBytes,
-}
-
+#[allow(dead_code)]
 #[derive(BinRead, Debug)]
 struct Stats {
     hp: u8,
@@ -97,6 +19,7 @@ struct Stats {
     spd: u8,
 }
 
+#[allow(dead_code)]
 #[derive(BinRead, Debug)]
 struct PokemonStats {
     stats: Stats,
@@ -123,100 +46,41 @@ struct PokemonStats {
     tutor_bits: [u8; 0x4],
 }
 
-mod text {
-    use binrw::BinRead;
+#[allow(dead_code)]
+#[derive(BinRead, Debug)]
+struct MoveStats {
+    move_type: u8,
+    quality: u8,
+    category: u8,
+    power: u8,
+    accuracy: u8,
+    pp: u8,
+    priority: u8,
+    hit_min_max: u8,
+    inflict: u16,
+    inflict_percent: u8,
+    inflict_duration: u8,
+    turn_min: u8,
+    turn_max: u8,
+    crit_stage: u8,
+    flinch: u8,
+    effect_sequence: u16,
+    heal: u8,
+    target: u8,
+    stat: [u8; 3],
+    stat_stage: [u8; 3],
+    stat_percent: [u8; 3],
 
-    #[derive(BinRead, Debug)]
-    struct TextFileHeader {
-        text_sections: u16,
-        line_count: u16,
-        total_length: u32,
-        intial_key: u32,
-        section_data_offset: u32,
-        section_length: u32,
-    }
-    #[derive(BinRead, Debug)]
-    struct LineInfo {
-        offset: u32,
-        length: u32,
-    }
+    z_move: u16,
+    z_power: u8,
+    z_effect: u8,
 
-    #[derive(BinRead)]
-    #[br(import(len: u32))]
-    struct EncryptedLine {
-        #[br(count = len)]
-        data: Vec<u16>,
-    }
+    refresh_type: u8,
+    refresh_percent: u8,
 
-    impl EncryptedLine {
-        fn into_string(self, mut key: u16) -> String {
-            return self
-                .data
-                .iter()
-                .map_while(|u| {
-                    let c = std::char::from_u32((*u ^ key) as u32).unwrap_or(' ');
-                    key = key << 3 | key >> 13;
-                    if c == '\0' {
-                        None
-                    } else {
-                        Some(c)
-                    }
-                })
-                .collect();
-        }
-    }
-
-    const KEY_BASE: u16 = 0x7c89;
-    const KEY_ADVANCE: u16 = 0x2983;
-
-    #[derive(Debug)]
-    pub struct TextFile {
-        header: TextFileHeader,
-        pub lines: Vec<String>,
-    }
-
-    impl BinRead for TextFile {
-        type Args<'a> = ();
-
-        fn read_options<R: std::io::Read + std::io::Seek>(
-            reader: &mut R,
-            endian: binrw::Endian,
-            _: Self::Args<'_>,
-        ) -> binrw::BinResult<Self> {
-            let header = TextFileHeader::read_options(reader, endian, ())?;
-            let mut lines: Vec<String> = Vec::new();
-            let mut key = KEY_BASE;
-            reader.seek(std::io::SeekFrom::Start(
-                header.section_data_offset as u64 + 4,
-            ))?;
-            for _ in 0..header.line_count {
-                let line_info = LineInfo::read_options(reader, endian, ())?;
-                println!("{:x?}", line_info);
-                let pos = reader.stream_position()?;
-                reader.seek(std::io::SeekFrom::Start(
-                    line_info.offset as u64 + header.section_data_offset as u64,
-                ))?;
-                lines.push(
-                    EncryptedLine::read_options(reader, endian, (line_info.length,))?
-                        .into_string(key),
-                );
-                reader.seek(std::io::SeekFrom::Start(pos))?;
-                key = key.wrapping_add(KEY_ADVANCE);
-            }
-
-            Ok(TextFile { header, lines })
-        }
-    }
+    flags: u32,
 }
 
-fn read_file<T: BinRead>(file: usize, subfile: usize, garc: &GarcFile) -> Option<T>
-where
-    for<'a> <T as binrw::BinRead>::Args<'a>: std::default::Default,
-{
-    let file_entry = garc.fatb.file_entries[file].entries[subfile]?;
-    let file_bytes = &garc.fimb.data[file_entry.start as usize..file_entry.end as usize];
-    T::read_le(&mut Cursor::new(file_bytes)).ok()
-}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -224,11 +88,11 @@ fn main() {
     let pokemon_stats_file = path.join("romfs/a/0/1/7");
     let mut file = File::open(pokemon_stats_file).unwrap();
     let garc_file = GarcFile::read_le(&mut file).unwrap();
-    let stats = read_file::<PokemonStats>(1, 0, &garc_file);
+    let stats = garc::read_file::<PokemonStats>(1, 0, &garc_file);
     println!("{:?}", stats);
 
-    let mut text_file = File::open(path.join("romfs/a/0/3/2")).unwrap();
-    let text_garc_file = GarcFile::read_le(&mut text_file).unwrap();
-    let text_file = read_file::<text::TextFile>(102, 0, &text_garc_file).unwrap();
+    let mut en_text_file = File::open(path.join("romfs/a/0/3/2")).unwrap();
+    let text_garc_file = GarcFile::read_le(&mut en_text_file).unwrap();
+    let text_file = garc::read_file::<text::TextFile>(102, 0, &text_garc_file).unwrap();
     println!("{:?}", text_file);
 }
