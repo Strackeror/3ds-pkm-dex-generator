@@ -95,3 +95,18 @@ where
     let file_bytes = &garc.fimb.data[file_entry.start as usize..file_entry.end as usize];
     T::read_le(&mut Cursor::new(file_bytes)).ok()
 }
+
+pub fn read_files<T: BinRead>(garc: &GarcFile) -> Vec<T>
+where
+    for<'a> <T as binrw::BinRead>::Args<'a>: std::default::Default,
+{
+    garc.fatb
+        .file_entries
+        .iter()
+        .map(|e| e.entries[0].unwrap())
+        .map(|sub_entry| {
+            let file_bytes = &garc.fimb.data[sub_entry.start as usize..sub_entry.end as usize];
+            T::read_le(&mut Cursor::new(file_bytes)).unwrap()
+        })
+        .collect()
+}

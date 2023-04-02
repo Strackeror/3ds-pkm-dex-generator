@@ -30,10 +30,12 @@ impl EncryptedLine {
             .map_while(|u| {
                 let c = std::char::from_u32((*u ^ key) as u32).unwrap_or(' ');
                 key = key << 3 | key >> 13;
-                if c == '\0' {
-                    None
-                } else {
-                    Some(c)
+                match c {
+                    '\0' => None,
+                    '\u{E08E}' => Some('M'),
+                    '\u{E08F}' => Some('F'),
+                    'é' => Some('e'),
+                    c => Some(c)
                 }
             })
             .collect();
@@ -65,7 +67,6 @@ impl BinRead for TextFile {
         ))?;
         for _ in 0..header.line_count {
             let line_info = LineInfo::read_options(reader, endian, ())?;
-            println!("{:x?}", line_info);
             let pos = reader.stream_position()?;
             reader.seek(std::io::SeekFrom::Start(
                 line_info.offset as u64 + header.section_data_offset as u64,
