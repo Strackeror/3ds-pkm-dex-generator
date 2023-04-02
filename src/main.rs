@@ -150,9 +150,10 @@ mod garc_files {
 
 #[allow(non_snake_case)]
 #[derive(Serialize)]
-struct PokemonJsGenderRatio {
-    M: f32,
-    F: f32,
+#[serde(untagged)]
+enum PokemonJsGenderRatio {
+    Ratio { M: f32, F: f32 },
+    All(String),
 }
 
 #[allow(non_snake_case)]
@@ -264,6 +265,25 @@ fn dump_pokes(
     Ok(name_map)
 }
 
+const EGG_GROUPS: &[&str] = &[
+    "---",
+    "Monster",
+    "Water 1",
+    "Bug",
+    "Flying",
+    "Field",
+    "Fairy",
+    "Grass",
+    "Human-Like",
+    "Water 3",
+    "Mineral",
+    "Amorphous",
+    "Water 2",
+    "Ditto",
+    "Dragon",
+    "Undiscovered",
+];
+
 fn make_poke(
     pokemon: &PokemonStats,
     type_names: &[String],
@@ -295,11 +315,29 @@ fn make_poke(
             ability_names[pokemon.abilities[2] as usize].clone(),
         );
     }
+
+    #[allow(non_snake_case)]
+    let mut eggGroups: Vec<String> = pokemon
+        .egg_groups
+        .iter()
+        .map(|id| EGG_GROUPS[*id as usize].to_owned())
+        .collect();
+    eggGroups.dedup();
+
+    let gender = match pokemon.gender {
+        0 => PokemonJsGenderRatio::All("M".to_owned()),
+        254 => PokemonJsGenderRatio::All("F".to_owned()),
+        255 => PokemonJsGenderRatio::All("N".to_owned()),
+        g => PokemonJsGenderRatio::Ratio {
+            M: (256. - (g + 1) as f32) / 256.,
+            F: ((g + 1) as f32 / 256.),
+        },
+    };
     PokemonJs {
         num: index as _,
         name: name.to_owned(),
         types,
-        genderRatio: PokemonJsGenderRatio { M: 0., F: 0. },
+        genderRatio: gender,
         baseStats: pokemon.stats.clone(),
         abilities,
         heightm: pokemon.height as f32 / 100.,
@@ -310,8 +348,7 @@ fn make_poke(
         evoItem: None,
         evoCondition: None,
         evos: None,
-        eggGroups: Vec::new(),
-
+        eggGroups,
         baseSpecies: None,
         forme: None,
         otherFormes: None,
@@ -647,6 +684,7 @@ fn dump_abilities(_rom_path: &Path, out_path: &Path, text_files: &[TextFile]) ->
                 },
             )
         })
+        .skip(1)
         .collect();
 
     let mut f = File::create(out_path.join("abilities.js"))?;
@@ -762,6 +800,7 @@ fn dump_moves(rom_path: &Path, out_path: &Path, text_files: &[TextFile]) -> Resu
                 },
             )
         })
+        .skip(1)
         .collect();
 
     let mut f = File::create(out_path.join("moves.js"))?;
