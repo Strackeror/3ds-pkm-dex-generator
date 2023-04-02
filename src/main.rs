@@ -1,4 +1,11 @@
-use std::{collections::HashMap, env, fs::File, io::Write, path::Path};
+use std::{
+    collections::{BTreeMap, HashMap},
+    env,
+    fs::File,
+    io::Write,
+    path::Path,
+    vec,
+};
 
 use binrw::{BinRead, FilePtr};
 use color_eyre::Result;
@@ -167,6 +174,11 @@ struct PokemonJs {
     evoCondition: Option<String>,
     evos: Option<Vec<String>>,
     eggGroups: Vec<String>,
+
+    baseSpecies: Option<String>,
+    forme: Option<String>,
+    otherFormes: Option<Vec<String>>,
+    formeOrder: Option<Vec<String>>,
 }
 
 fn to_id(s: String) -> String {
@@ -176,8 +188,13 @@ fn to_id(s: String) -> String {
         .collect()
 }
 
-fn dump_pokes(rom_path: &Path, out_path: &Path, text_files: &[TextFile]) -> Result<()> {
-    let mut dex_map: IndexMap<String, PokemonJs> = IndexMap::new();
+fn dump_pokes(
+    rom_path: &Path,
+    out_path: &Path,
+    text_files: &[TextFile],
+) -> Result<BTreeMap<usize, String>> {
+    const NORMAL_FORME_COUNT: usize = 808;
+    let mut dex_map: BTreeMap<usize, PokemonJs> = BTreeMap::new();
 
     let pokemon_path = rom_path
         .join(garc_files::BASE_PATH)
@@ -190,57 +207,38 @@ fn dump_pokes(rom_path: &Path, out_path: &Path, text_files: &[TextFile]) -> Resu
     let type_names = &text_files[text_ids::TYPE_NAMES].lines;
     let item_names = &text_files[text_ids::ITEM_NAMES].lines;
 
-    for (index, pokemon) in pokemons.iter().enumerate() {
-        if index >= 808 {
-            break;
-        }
-        let name = species_names[index].clone();
-        let mut types: Vec<String> = [pokemon.types.0, pokemon.types.1]
-            .iter()
-            .map(|t| type_names[*t as usize].clone())
-            .collect();
-        types.dedup();
+    for (index, pokemon) in pokemons.iter().take(NORMAL_FORME_COUNT).enumerate() {
+        let name = &species_names[index];
+        let poke = make_poke(pokemon, type_names, ability_names, index, name);
+        dex_map.insert(index, poke);
+    }
 
-        let mut abilities = HashMap::new();
-        abilities.insert(
-            "0".to_owned(),
-            ability_names[pokemon.abilities[0] as usize].clone(),
-        );
-        if pokemon.abilities[1] != pokemon.abilities[0] {
-            abilities.insert(
-                "1".to_owned(),
-                ability_names[pokemon.abilities[1] as usize].clone(),
-            );
+    for (base_index, pokemon) in pokemons.iter().take(NORMAL_FORME_COUNT).enumerate() {
+        if pokemon.form_count <= 1 || (pokemon.form_stats_id as usize) < NORMAL_FORME_COUNT {
+            continue;
         }
-        if pokemon.abilities[2] != pokemon.abilities[0]
-            && pokemon.abilities[2] != pokemon.abilities[1]
-        {
-            abilities.insert(
-                "H".to_owned(),
-                ability_names[pokemon.abilities[2] as usize].clone(),
-            );
+        let base_name = &species_names[base_index];
+        let mut other_formes: Vec<String> = vec![];
+        let mut forme_order: Vec<String> = vec![base_name.to_owned()];
+        for form_id in 1..pokemon.form_count {
+            let index = pokemon.form_stats_id as usize + form_id as usize - 1;
+            let forme_name =
+                get_forme_name(base_name, form_id as _).unwrap_or_else(|| form_id.to_string());
+            let name = format!("{}-{}", base_name, forme_name);
+            other_formes.push(name.clone());
+            forme_order.push(name.clone());
+            let pokemon_forme = &pokemons[index];
+            let mut poke = make_poke(pokemon_forme, type_names, ability_names, index, &name);
+            poke.num = base_index as _;
+            poke.forme = Some(forme_name.to_owned());
+            poke.baseSpecies = Some(base_name.clone());
+            dex_map.insert(index, poke);
         }
 
-        dex_map.insert(
-            to_id(name.clone()),
-            PokemonJs {
-                num: index as _,
-                name,
-                types,
-                genderRatio: PokemonJsGenderRatio { M: 0., F: 0. },
-                baseStats: pokemon.stats.clone(),
-                abilities,
-                heightm: pokemon.height as f32 / 100.,
-                weightkg: pokemon.weight as f32 / 10.,
-                prevo: None,
-                evoType: None,
-                evoLevel: None,
-                evoItem: None,
-                evoCondition: None,
-                evos: None,
-                eggGroups: Vec::new(),
-            },
-        );
+        if let Some(dex) = dex_map.get_mut(&base_index) {
+            dex.otherFormes = Some(other_formes);
+            dex.formeOrder = Some(forme_order)
+        }
     }
 
     let evo_path = rom_path
@@ -248,7 +246,14 @@ fn dump_pokes(rom_path: &Path, out_path: &Path, text_files: &[TextFile]) -> Resu
         .join(garc_files::EVOLUTIONS);
     let evolutions =
         garc::read_files::<[PokemonEvolution; 8]>(&GarcFile::read_le(&mut File::open(evo_path)?)?);
-    handle_evos(evolutions, species_names, item_names, &mut dex_map);
+    handle_evos(evolutions, item_names, &mut dex_map);
+
+    let name_map = dex_map.iter().map(|(i, s)| (*i, s.name.clone())).collect();
+    let dex_map: IndexMap<String, PokemonJs> = dex_map
+        .into_values()
+        .skip(1) // Skip Egg
+        .map(|dex| (to_id(dex.name.clone()), dex))
+        .collect();
 
     let mut f = File::create(out_path.join("pokedex.js"))?;
     write!(
@@ -256,33 +261,324 @@ fn dump_pokes(rom_path: &Path, out_path: &Path, text_files: &[TextFile]) -> Resu
         "exports.BattlePokedex = {}",
         serde_json::to_string_pretty(&dex_map)?
     )?;
-    Ok(())
+    Ok(name_map)
+}
+
+fn make_poke(
+    pokemon: &PokemonStats,
+    type_names: &[String],
+    ability_names: &[String],
+    index: usize,
+    name: &str,
+) -> PokemonJs {
+    let mut types: Vec<String> = [pokemon.types.0, pokemon.types.1]
+        .iter()
+        .map(|t| type_names[*t as usize].clone())
+        .collect();
+    types.dedup();
+
+    let mut abilities = HashMap::new();
+    abilities.insert(
+        "0".to_owned(),
+        ability_names[pokemon.abilities[0] as usize].clone(),
+    );
+    if pokemon.abilities[1] != pokemon.abilities[0] {
+        abilities.insert(
+            "1".to_owned(),
+            ability_names[pokemon.abilities[1] as usize].clone(),
+        );
+    }
+    if pokemon.abilities[2] != pokemon.abilities[0] && pokemon.abilities[2] != pokemon.abilities[1]
+    {
+        abilities.insert(
+            "H".to_owned(),
+            ability_names[pokemon.abilities[2] as usize].clone(),
+        );
+    }
+    PokemonJs {
+        num: index as _,
+        name: name.to_owned(),
+        types,
+        genderRatio: PokemonJsGenderRatio { M: 0., F: 0. },
+        baseStats: pokemon.stats.clone(),
+        abilities,
+        heightm: pokemon.height as f32 / 100.,
+        weightkg: pokemon.weight as f32 / 10.,
+        prevo: None,
+        evoType: None,
+        evoLevel: None,
+        evoItem: None,
+        evoCondition: None,
+        evos: None,
+        eggGroups: Vec::new(),
+
+        baseSpecies: None,
+        forme: None,
+        otherFormes: None,
+        formeOrder: None,
+    }
+}
+
+const FORME_NAMES: &[((&str, usize), &str)] = &[
+    (("Venusaur", 1), "Mega"),
+    (("Charizard", 1), "Mega-X"),
+    (("Charizard", 2), "Mega-Y"),
+    (("Blastoise", 1), "Mega"),
+    (("Beedrill", 1), "Mega"),
+    (("Pidgeot", 1), "Mega"),
+    (("Rattata", 1), "Alola"),
+    (("Raticate", 1), "Alola"),
+    (("Raticate", 2), "Alola-Totem"),
+    (("Pikachu", 1), "Cosplay"),
+    (("Pikachu", 2), "Rock-Star"),
+    (("Pikachu", 3), "Belle"),
+    (("Pikachu", 4), "Pop-Star"),
+    (("Pikachu", 5), "PhD"),
+    (("Pikachu", 6), "Libre"),
+    (("Pikachu", 7), "Original"),
+    (("Pikachu", 8), "Hoenn"),
+    (("Pikachu", 9), "Sinnoh"),
+    (("Pikachu", 10), "Unova"),
+    (("Pikachu", 11), "Kalos"),
+    (("Pikachu", 12), "Alola"),
+    (("Pikachu", 13), "Partner"),
+    (("Pikachu", 14), "Starter"),
+    (("Pikachu", 15), "World"),
+    (("Raichu", 1), "Alola"),
+    (("Sandshrew", 1), "Alola"),
+    (("Sandslash", 1), "Alola"),
+    (("Vulpix", 1), "Alola"),
+    (("Ninetales", 1), "Alola"),
+    (("Diglett", 1), "Alola"),
+    (("Dugtrio", 1), "Alola"),
+    (("Meowth", 1), "Alola"),
+    (("Meowth", 2), "Galar"),
+    (("Persian", 1), "Alola"),
+    (("Growlithe", 1), "Hisui"),
+    (("Arcanine", 1), "Hisui"),
+    (("Alakazam", 1), "Mega"),
+    (("Geodude", 1), "Alola"),
+    (("Graveler", 1), "Alola"),
+    (("Golem", 1), "Alola"),
+    (("Ponyta", 1), "Galar"),
+    (("Rapidash", 1), "Galar"),
+    (("Slowpoke", 1), "Galar"),
+    (("Slowbro", 1), "Mega"),
+    (("Slowbro", 2), "Galar"),
+    (("Farfetch’d", 1), "Galar"),
+    (("Grimer", 1), "Alola"),
+    (("Muk", 1), "Alola"),
+    (("Gengar", 1), "Mega"),
+    (("Voltorb", 1), "Hisui"),
+    (("Electrode", 1), "Hisui"),
+    (("Exeggutor", 1), "Alola"),
+    (("Marowak", 1), "Alola"),
+    (("Marowak", 2), "Alola-Totem"),
+    (("Weezing", 1), "Galar"),
+    (("Kangaskhan", 1), "Mega"),
+    (("Mr. Mime", 1), "Galar"),
+    (("Pinsir", 1), "Mega"),
+    (("Tauros", 1), "Paldea-Combat"),
+    (("Tauros", 2), "Paldea-Blaze"),
+    (("Tauros", 3), "Paldea-Aqua"),
+    (("Gyarados", 1), "Mega"),
+    (("Eevee", 1), "Starter"),
+    (("Aerodactyl", 1), "Mega"),
+    (("Articuno", 1), "Galar"),
+    (("Zapdos", 1), "Galar"),
+    (("Moltres", 1), "Galar"),
+    (("Mewtwo", 1), "Mega-X"),
+    (("Mewtwo", 2), "Mega-Y"),
+    (("Typhlosion", 1), "Hisui"),
+    (("Pichu", 1), "Spiky-eared"),
+    (("Ampharos", 1), "Mega"),
+    (("Wooper", 1), "Paldea"),
+    (("Slowking", 1), "Galar"),
+    (("Steelix", 1), "Mega"),
+    (("Qwilfish", 1), "Hisui"),
+    (("Scizor", 1), "Mega"),
+    (("Heracross", 1), "Mega"),
+    (("Sneasel", 1), "Hisui"),
+    (("Corsola", 1), "Galar"),
+    (("Houndoom", 1), "Mega"),
+    (("Tyranitar", 1), "Mega"),
+    (("Sceptile", 1), "Mega"),
+    (("Blaziken", 1), "Mega"),
+    (("Swampert", 1), "Mega"),
+    (("Zigzagoon", 1), "Galar"),
+    (("Linoone", 1), "Galar"),
+    (("Gardevoir", 1), "Mega"),
+    (("Sableye", 1), "Mega"),
+    (("Mawile", 1), "Mega"),
+    (("Aggron", 1), "Mega"),
+    (("Medicham", 1), "Mega"),
+    (("Manectric", 1), "Mega"),
+    (("Sharpedo", 1), "Mega"),
+    (("Camerupt", 1), "Mega"),
+    (("Altaria", 1), "Mega"),
+    (("Castform", 1), "Sunny"),
+    (("Castform", 2), "Rainy"),
+    (("Castform", 3), "Snowy"),
+    (("Banette", 1), "Mega"),
+    (("Absol", 1), "Mega"),
+    (("Glalie", 1), "Mega"),
+    (("Salamence", 1), "Mega"),
+    (("Metagross", 1), "Mega"),
+    (("Latias", 1), "Mega"),
+    (("Latios", 1), "Mega"),
+    (("Kyogre", 1), "Primal"),
+    (("Groudon", 1), "Primal"),
+    (("Rayquaza", 1), "Mega"),
+    (("Deoxys", 1), "Attack"),
+    (("Deoxys", 2), "Defense"),
+    (("Deoxys", 3), "Speed"),
+    (("Wormadam", 1), "Sandy"),
+    (("Wormadam", 2), "Trash"),
+    (("Cherrim", 1), "Sunshine"),
+    (("Lopunny", 1), "Mega"),
+    (("Garchomp", 1), "Mega"),
+    (("Lucario", 1), "Mega"),
+    (("Abomasnow", 1), "Mega"),
+    (("Gallade", 1), "Mega"),
+    (("Rotom", 1), "Heat"),
+    (("Rotom", 2), "Wash"),
+    (("Rotom", 3), "Frost"),
+    (("Rotom", 4), "Fan"),
+    (("Rotom", 5), "Mow"),
+    (("Dialga", 1), "Origin"),
+    (("Palkia", 1), "Origin"),
+    (("Giratina", 1), "Origin"),
+    (("Shaymin", 1), "Sky"),
+    (("Arceus", 1), "Bug"),
+    (("Arceus", 2), "Dark"),
+    (("Arceus", 3), "Dragon"),
+    (("Arceus", 4), "Electric"),
+    (("Arceus", 5), "Fairy"),
+    (("Arceus", 6), "Fighting"),
+    (("Arceus", 7), "Fire"),
+    (("Arceus", 8), "Flying"),
+    (("Arceus", 9), "Ghost"),
+    (("Arceus", 10), "Grass"),
+    (("Arceus", 11), "Ground"),
+    (("Arceus", 12), "Ice"),
+    (("Arceus", 13), "Poison"),
+    (("Arceus", 14), "Psychic"),
+    (("Arceus", 15), "Rock"),
+    (("Arceus", 16), "Steel"),
+    (("Arceus", 17), "Water"),
+    (("Samurott", 1), "Hisui"),
+    (("Audino", 1), "Mega"),
+    (("Lilligant", 1), "Hisui"),
+    (("Basculin", 1), "Blue-Striped"),
+    (("Basculin", 2), "White-Striped"),
+    (("Darumaka", 1), "Galar"),
+    (("Darmanitan", 1), "Zen"),
+    (("Darmanitan", 2), "Galar"),
+    (("Darmanitan", 3), "Galar-Zen"),
+    (("Yamask", 1), "Galar"),
+    (("Zorua", 1), "Hisui"),
+    (("Zoroark", 1), "Hisui"),
+    (("Stunfisk", 1), "Galar"),
+    (("Braviary", 1), "Hisui"),
+    (("Tornadus", 1), "Therian"),
+    (("Thundurus", 1), "Therian"),
+    (("Landorus", 1), "Therian"),
+    (("Kyurem", 1), "Black"),
+    (("Kyurem", 2), "White"),
+    (("Keldeo", 1), "Resolute"),
+    (("Meloetta", 1), "Pirouette"),
+    (("Genesect", 1), "Douse"),
+    (("Genesect", 2), "Shock"),
+    (("Genesect", 3), "Burn"),
+    (("Genesect", 4), "Chill"),
+    (("Greninja", 1), "Ash"),
+    (("Vivillon", 1), "Fancy"),
+    (("Vivillon", 2), "Pokeball"),
+    (("Floette", 1), "Eternal"),
+    (("Meowstic", 1), "F"),
+    (("Aegislash", 1), "Blade"),
+    (("Sliggoo", 1), "Hisui"),
+    (("Goodra", 1), "Hisui"),
+    (("Pumpkaboo", 1), "Small"),
+    (("Pumpkaboo", 2), "Large"),
+    (("Pumpkaboo", 3), "Super"),
+    (("Gourgeist", 1), "Small"),
+    (("Gourgeist", 2), "Large"),
+    (("Gourgeist", 3), "Super"),
+    (("Avalugg", 1), "Hisui"),
+    (("Xerneas", 1), "Neutral"),
+    (("Zygarde", 2), "Complete"),
+    (("Diancie", 1), "Mega"),
+    (("Hoopa", 1), "Unbound"),
+    (("Decidueye", 1), "Hisui"),
+    (("Gumshoos", 1), "Totem"),
+    (("Vikavolt", 1), "Totem"),
+    (("Oricorio", 1), "Pom-Pom"),
+    (("Oricorio", 2), "Pa'u"),
+    (("Oricorio", 3), "Sensu"),
+    (("Ribombee", 1), "Totem"),
+    (("Lycanroc", 1), "Midnight"),
+    (("Lycanroc", 2), "Dusk"),
+    (("Wishiwashi", 1), "School"),
+    (("Araquanid", 1), "Totem"),
+    (("Lurantis", 1), "Totem"),
+    (("Salazzle", 1), "Totem"),
+    (("Silvally", 1), "Bug"),
+    (("Silvally", 2), "Dark"),
+    (("Silvally", 3), "Dragon"),
+    (("Silvally", 4), "Electric"),
+    (("Silvally", 5), "Fairy"),
+    (("Silvally", 6), "Fighting"),
+    (("Silvally", 7), "Fire"),
+    (("Silvally", 8), "Flying"),
+    (("Silvally", 9), "Ghost"),
+    (("Silvally", 10), "Grass"),
+    (("Silvally", 11), "Ground"),
+    (("Silvally", 12), "Ice"),
+    (("Silvally", 13), "Poison"),
+    (("Silvally", 14), "Psychic"),
+    (("Silvally", 15), "Rock"),
+    (("Silvally", 16), "Steel"),
+    (("Silvally", 17), "Water"),
+    (("Minior", 1), "Meteor"),
+    (("Togedemaru", 1), "Totem"),
+    (("Mimikyu", 1), "Busted"),
+    (("Mimikyu", 2), "Totem"),
+    (("Mimikyu", 3), "Busted-Totem"),
+    (("Kommo-o", 1), "Totem"),
+    (("Necrozma", 1), "Dusk-Mane"),
+    (("Necrozma", 2), "Dawn-Wings"),
+    (("Necrozma", 3), "Ultra"),
+];
+
+fn get_forme_name(species: &str, forme_id: usize) -> Option<String> {
+    FORME_NAMES
+        .iter()
+        .find(|((name, id), _)| **name == *species && *id == forme_id)
+        .map(|(_, forme_name)| (*forme_name).to_owned())
 }
 
 fn handle_evos(
     evolutions: Vec<[PokemonEvolution; 8]>,
-    species_names: &[String],
     item_names: &[String],
-    dex_map: &mut IndexMap<String, PokemonJs>,
+    dex_map: &mut BTreeMap<usize, PokemonJs>,
 ) {
     for (index, evo_list) in evolutions.iter().enumerate() {
-        if index >= 808 {
-            continue;
-        }
         let mut evo_set: IndexSet<String> = IndexSet::new();
-        let current_name = &species_names[index];
+        let Some(current_name) = dex_map.get(&index).map(|d|d.name.to_owned()) else {
+            continue;
+        };
 
         for evo in evo_list {
             if evo.method == 0 {
                 continue;
             }
-            let evo_name = &species_names[evo.species as usize];
-            let evo_id = to_id(evo_name.clone());
-            evo_set.insert(evo_name.clone());
-            let Some(poke_entry) = dex_map.get_mut(&evo_id) else {
+            let Some(poke_entry) = dex_map.get_mut(&(evo.species as usize)) else {
                 continue;
             };
 
+            let evo_name = &poke_entry.name;
+            evo_set.insert(evo_name.clone());
             if poke_entry.prevo.is_some() {
                 continue;
             }
@@ -317,7 +613,7 @@ fn handle_evos(
             }
         }
         if !evo_set.is_empty() {
-            dex_map.get_index_mut(index).unwrap().1.evos = Some(evo_set.into_iter().collect());
+            dex_map.get_mut(&index).unwrap().evos = Some(evo_set.into_iter().collect());
         }
     }
 }
@@ -485,8 +781,8 @@ fn main() {
     let mut en_text_file = File::open(path.join("romfs/a/0/3/2")).unwrap();
     let text_garc_file = GarcFile::read_le(&mut en_text_file).unwrap();
     let text_files = garc::read_files::<text::TextFile>(&text_garc_file);
-    dump_pokes(path, out_path, &text_files).unwrap();
+    let names = dump_pokes(path, out_path, &text_files).unwrap();
+    learnset::dump_learnsets(path, out_path, &text_files, &names).unwrap();
     dump_abilities(path, out_path, &text_files).unwrap();
     dump_moves(path, out_path, &text_files).unwrap();
-    learnset::dump_learnsets(path, out_path, &text_files).unwrap();
 }

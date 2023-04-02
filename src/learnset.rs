@@ -9,6 +9,7 @@ use binrw::{until_eof, BinRead};
 use color_eyre::Result;
 use indexmap::IndexMap;
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -45,14 +46,17 @@ impl Learnset {
     }
 }
 
-pub fn dump_learnsets(rom_path: &Path, out_path: &Path, text_files: &[TextFile]) -> Result<()> {
+pub fn dump_learnsets(
+    rom_path: &Path,
+    out_path: &Path,
+    text_files: &[TextFile],
+    poke_names: &BTreeMap<usize, String>,
+) -> Result<()> {
     let move_names = &text_files[text_ids::MOVE_NAMES].lines;
-    let species_names = &text_files[text_ids::SPECIES_NAMES].lines;
     let lvl_path = rom_path
         .join(garc_files::BASE_PATH)
         .join(garc_files::LVL_UP_MOVES);
-    let lvl_ups =
-        garc::read_files::<LevelUpMoves>(&GarcFile::read_le(&mut File::open(lvl_path)?)?);
+    let lvl_ups = garc::read_files::<LevelUpMoves>(&GarcFile::read_le(&mut File::open(lvl_path)?)?);
 
     let pokemon_path = rom_path
         .join(garc_files::BASE_PATH)
@@ -62,10 +66,10 @@ pub fn dump_learnsets(rom_path: &Path, out_path: &Path, text_files: &[TextFile])
     let learnset_map: IndexMap<String, Learnset> = lvl_ups
         .iter()
         .enumerate()
-        .take_while(|(index, _)| *index < 808)
+        .filter(|(index, _)| poke_names.contains_key(index))
         .map(|(index, lvl_ups)| {
             (
-                to_id(species_names[index].to_owned()),
+                to_id(poke_names[&index].to_owned()),
                 make_lvl_up_learnset(lvl_ups, move_names)
                     .merge(make_tm_learnset(&pokemons[index], move_names))
                     .merge(make_beach_learnset(&pokemons[index], move_names)),
@@ -222,10 +226,10 @@ fn make_tm_learnset(pokemon: &PokemonStats, _move_names: &[String]) -> Learnset 
 
 #[allow(clippy::zero_prefixed_literal)]
 const BEACH_TUTORS: &[u16] = &[
-    450, 343, 162, 530, 324, 442, 402, 529, 340, 067, 441, 253, 009, 007, 008, 277, 335, 414,
-    492, 356, 393, 334, 387, 276, 527, 196, 401, 428, 406, 304, 231, 020, 173, 282, 235, 257,
-    272, 215, 366, 143, 220, 202, 409, 264, 351, 352, 380, 388, 180, 495, 270, 271, 478, 472,
-    283, 200, 278, 289, 446, 285, 477, 502, 432, 710, 707, 675, 673,
+    450, 343, 162, 530, 324, 442, 402, 529, 340, 067, 441, 253, 009, 007, 008, 277, 335, 414, 492,
+    356, 393, 334, 387, 276, 527, 196, 401, 428, 406, 304, 231, 020, 173, 282, 235, 257, 272, 215,
+    366, 143, 220, 202, 409, 264, 351, 352, 380, 388, 180, 495, 270, 271, 478, 472, 283, 200, 278,
+    289, 446, 285, 477, 502, 432, 710, 707, 675, 673,
 ];
 
 fn make_beach_learnset(pokemon: &PokemonStats, move_names: &[String]) -> Learnset {
