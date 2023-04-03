@@ -223,8 +223,9 @@ fn dump_pokes(
         let mut forme_order: Vec<String> = vec![base_name.to_owned()];
         for form_id in 1..pokemon.form_count {
             let index = pokemon.form_stats_id as usize + form_id as usize - 1;
-            let forme_name =
-                get_forme_name(base_name, form_id as _).unwrap_or_else(|| form_id.to_string());
+            let Some(forme_name) = get_forme_name(base_name, form_id as _) else {
+                    continue;
+            };
             let name = format!("{}-{}", base_name, forme_name);
             other_formes.push(name.clone());
             forme_order.push(name.clone());
@@ -250,8 +251,11 @@ fn dump_pokes(
     handle_evos(evolutions, item_names, &mut dex_map);
 
     let name_map = dex_map.iter().map(|(i, s)| (*i, s.name.clone())).collect();
-    let dex_map: IndexMap<String, PokemonJs> = dex_map
-        .into_values()
+
+    let mut sorted_dex_list: Vec<_> = dex_map.into_values().collect();
+    sorted_dex_list.sort_by(|l, r| l.num.cmp(&r.num));
+    let dex_map: IndexMap<String, PokemonJs> = sorted_dex_list
+        .into_iter()
         .skip(1) // Skip Egg
         .map(|dex| (to_id(dex.name.clone()), dex))
         .collect();
@@ -366,21 +370,6 @@ const FORME_NAMES: &[((&str, usize), &str)] = &[
     (("Rattata", 1), "Alola"),
     (("Raticate", 1), "Alola"),
     (("Raticate", 2), "Alola-Totem"),
-    (("Pikachu", 1), "Cosplay"),
-    (("Pikachu", 2), "Rock-Star"),
-    (("Pikachu", 3), "Belle"),
-    (("Pikachu", 4), "Pop-Star"),
-    (("Pikachu", 5), "PhD"),
-    (("Pikachu", 6), "Libre"),
-    (("Pikachu", 7), "Original"),
-    (("Pikachu", 8), "Hoenn"),
-    (("Pikachu", 9), "Sinnoh"),
-    (("Pikachu", 10), "Unova"),
-    (("Pikachu", 11), "Kalos"),
-    (("Pikachu", 12), "Alola"),
-    (("Pikachu", 13), "Partner"),
-    (("Pikachu", 14), "Starter"),
-    (("Pikachu", 15), "World"),
     (("Raichu", 1), "Alola"),
     (("Sandshrew", 1), "Alola"),
     (("Sandslash", 1), "Alola"),
@@ -520,18 +509,19 @@ const FORME_NAMES: &[((&str, usize), &str)] = &[
     (("Tornadus", 1), "Therian"),
     (("Thundurus", 1), "Therian"),
     (("Landorus", 1), "Therian"),
-    (("Kyurem", 1), "Black"),
-    (("Kyurem", 2), "White"),
+    (("Kyurem", 1), "White"),
+    (("Kyurem", 2), "Black"),
     (("Keldeo", 1), "Resolute"),
     (("Meloetta", 1), "Pirouette"),
     (("Genesect", 1), "Douse"),
     (("Genesect", 2), "Shock"),
     (("Genesect", 3), "Burn"),
     (("Genesect", 4), "Chill"),
-    (("Greninja", 1), "Ash"),
+    (("Greninja", 1), "BattleBond"),
+    (("Greninja", 2), "Ash"),
     (("Vivillon", 1), "Fancy"),
     (("Vivillon", 2), "Pokeball"),
-    (("Floette", 1), "Eternal"),
+    (("Floette", 5), "Eternal"),
     (("Meowstic", 1), "F"),
     (("Aegislash", 1), "Blade"),
     (("Sliggoo", 1), "Hisui"),
@@ -545,8 +535,6 @@ const FORME_NAMES: &[((&str, usize), &str)] = &[
     (("Avalugg", 1), "Hisui"),
     (("Xerneas", 1), "Neutral"),
     (("Zygarde", 1), "10%"),
-    (("Zygarde", 2), "Unused-1"),
-    (("Zygarde", 3), "Unused-2"),
     (("Zygarde", 4), "Complete"),
     (("Diancie", 1), "Mega"),
     (("Hoopa", 1), "Unbound"),
@@ -580,7 +568,7 @@ const FORME_NAMES: &[((&str, usize), &str)] = &[
     (("Silvally", 15), "Rock"),
     (("Silvally", 16), "Steel"),
     (("Silvally", 17), "Water"),
-    (("Minior", 1), "Meteor"),
+    (("Minior", 7), "Meteor"),
     (("Togedemaru", 1), "Totem"),
     (("Mimikyu", 1), "Busted"),
     (("Mimikyu", 2), "Totem"),
@@ -717,14 +705,14 @@ struct MoveJs {
     name: String,
     pp: u32,
     priority: i32,
-    flags: HashMap<String, u8>,
+    flags: BTreeMap<String, u8>,
     r#type: String,
     target: String,
     desc: String,
     shortDesc: String,
 }
 
-fn move_flags(mmove: &MoveStats) -> HashMap<String, u8> {
+fn move_flags(mmove: &MoveStats) -> BTreeMap<String, u8> {
     const FLAGS: &[(u32, &str)] = &[
         (1 << 0, "contact"),
         (1 << 1, "charge"),
