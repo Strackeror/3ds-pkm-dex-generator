@@ -312,7 +312,9 @@ fn make_poke(
             ability_names[pokemon.abilities[1] as usize].clone(),
         );
     }
-    if pokemon.abilities[2] != pokemon.abilities[0] && pokemon.abilities[2] != pokemon.abilities[1]
+    if pokemon.abilities[2] != pokemon.abilities[0]
+        && pokemon.abilities[2] != pokemon.abilities[1]
+        && pokemon.abilities[2] != 255
     {
         abilities.insert(
             "H".to_owned(),
@@ -517,7 +519,6 @@ const FORME_NAMES: &[((&str, usize), &str)] = &[
     (("Genesect", 2), "Shock"),
     (("Genesect", 3), "Burn"),
     (("Genesect", 4), "Chill"),
-    (("Greninja", 1), "BattleBond"),
     (("Greninja", 2), "Ash"),
     (("Vivillon", 1), "Fancy"),
     (("Vivillon", 2), "Pokeball"),
@@ -534,7 +535,8 @@ const FORME_NAMES: &[((&str, usize), &str)] = &[
     (("Gourgeist", 3), "Super"),
     (("Avalugg", 1), "Hisui"),
     (("Xerneas", 1), "Neutral"),
-    (("Zygarde", 1), "10%"),
+    (("Zygarde", 2), "10%"),
+    (("Zygarde", 3), "50%"),
     (("Zygarde", 4), "Complete"),
     (("Diancie", 1), "Mega"),
     (("Hoopa", 1), "Unbound"),
@@ -568,7 +570,13 @@ const FORME_NAMES: &[((&str, usize), &str)] = &[
     (("Silvally", 15), "Rock"),
     (("Silvally", 16), "Steel"),
     (("Silvally", 17), "Water"),
-    (("Minior", 7), "Meteor"),
+    (("Minior", 7), "Red"),
+    (("Minior", 8), "Orange"),
+    (("Minior", 9), "Yellow"),
+    (("Minior", 10), "Green"),
+    (("Minior", 11), "Blue"),
+    (("Minior", 12), "Indigo"),
+    (("Minior", 13), "Violet"),
     (("Togedemaru", 1), "Totem"),
     (("Mimikyu", 1), "Busted"),
     (("Mimikyu", 2), "Totem"),
