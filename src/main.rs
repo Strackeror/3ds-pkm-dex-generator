@@ -248,7 +248,7 @@ fn dump_pokes(
         .join(garc_files::EVOLUTIONS);
     let evolutions =
         garc::read_files::<[PokemonEvolution; 8]>(&GarcFile::read_le(&mut File::open(evo_path)?)?);
-    handle_evos(evolutions, item_names, &mut dex_map);
+    handle_evos(evolutions, item_names, &mut dex_map, &pokemons);
 
     let name_map = dex_map.iter().map(|(i, s)| (*i, s.name.clone())).collect();
 
@@ -598,6 +598,7 @@ fn handle_evos(
     evolutions: Vec<[PokemonEvolution; 8]>,
     item_names: &[String],
     dex_map: &mut BTreeMap<usize, PokemonJs>,
+    pokemons: &[PokemonStats],
 ) {
     for (index, evo_list) in evolutions.iter().enumerate() {
         let mut evo_set: IndexSet<String> = IndexSet::new();
@@ -609,7 +610,11 @@ fn handle_evos(
             if evo.method == 0 {
                 continue;
             }
-            let Some(poke_entry) = dex_map.get_mut(&(evo.species as usize)) else {
+            let mut species_id = evo.species;
+            if evo.form > 0 {
+                species_id = pokemons[species_id as usize].form_stats_id + evo.form as u16 - 1
+            }
+            let Some(poke_entry) = dex_map.get_mut(&(species_id as usize)) else {
                 continue;
             };
 
