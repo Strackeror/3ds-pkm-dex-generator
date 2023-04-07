@@ -1,11 +1,4 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    env,
-    fs::File,
-    io::Write,
-    path::Path,
-    vec,
-};
+use std::{collections::BTreeMap, env, fs::File, io::Write, path::Path, vec};
 
 use binrw::{BinRead, FilePtr};
 use color_eyre::Result;
@@ -165,7 +158,7 @@ struct PokemonJs {
     types: Vec<String>,
     genderRatio: PokemonJsGenderRatio,
     baseStats: Stats,
-    abilities: HashMap<String, String>,
+    abilities: BTreeMap<String, String>,
     heightm: f32,
     weightkg: f32,
     prevo: Option<String>,
@@ -301,7 +294,7 @@ fn make_poke(
         .collect();
     types.dedup();
 
-    let mut abilities = HashMap::new();
+    let mut abilities = BTreeMap::new();
     abilities.insert(
         "0".to_owned(),
         ability_names[pokemon.abilities[0] as usize].clone(),
