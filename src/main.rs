@@ -143,10 +143,9 @@ mod garc_files {
 
 #[allow(non_snake_case)]
 #[derive(Serialize)]
-#[serde(untagged)]
-enum PokemonJsGenderRatio {
-    Ratio { M: f32, F: f32 },
-    All(String),
+struct PokemonJsGenderRatio {
+    M: f32,
+    F: f32,
 }
 
 #[allow(non_snake_case)]
@@ -156,10 +155,10 @@ struct PokemonJs {
     num: u32,
     name: String,
     types: Vec<String>,
-    genderRatio: PokemonJsGenderRatio,
+    gender: Option<String>,
+    genderRatio: Option<PokemonJsGenderRatio>,
     baseStats: Stats,
     abilities: BTreeMap<String, String>,
-    heightm: f32,
     weightkg: f32,
     prevo: Option<String>,
     evoLevel: Option<u16>,
@@ -253,12 +252,8 @@ fn dump_pokes(
         .map(|dex| (to_id(dex.name.clone()), dex))
         .collect();
 
-    let mut f = File::create(out_path.join("pokedex.js"))?;
-    write!(
-        f,
-        "exports.BattlePokedex = {}",
-        serde_json::to_string_pretty(&dex_map)?
-    )?;
+    let mut f = File::create(out_path.join("pokedex.json"))?;
+    write!(f, "{}", serde_json::to_string_pretty(&dex_map)?)?;
     Ok(name_map)
 }
 
@@ -315,31 +310,34 @@ fn make_poke(
         );
     }
 
-    #[allow(non_snake_case)]
-    let mut eggGroups: Vec<String> = pokemon
+    let mut egg_groups: Vec<String> = pokemon
         .egg_groups
         .iter()
         .map(|id| EGG_GROUPS[*id as usize].to_owned())
         .collect();
-    eggGroups.dedup();
+    egg_groups.dedup();
 
-    let gender = match pokemon.gender {
-        0 => PokemonJsGenderRatio::All("M".to_owned()),
-        254 => PokemonJsGenderRatio::All("F".to_owned()),
-        255 => PokemonJsGenderRatio::All("N".to_owned()),
-        g => PokemonJsGenderRatio::Ratio {
-            M: (256. - (g + 1) as f32) / 256.,
-            F: ((g + 1) as f32 / 256.),
-        },
+    let (gender, gender_ratio) = match pokemon.gender {
+        0 => (Some("M".to_owned()), None),
+        254 => (Some("F".to_owned()), None),
+        255 => (Some("N".to_owned()), None),
+        g => (
+            None,
+            Some(PokemonJsGenderRatio {
+                M: (256. - (g + 1) as f32) / 256.,
+                F: ((g + 1) as f32 / 256.),
+            }),
+        ),
     };
+
     PokemonJs {
         num: index as _,
         name: name.to_owned(),
         types,
-        genderRatio: gender,
+        gender,
+        genderRatio: gender_ratio,
         baseStats: pokemon.stats.clone(),
         abilities,
-        heightm: pokemon.height as f32 / 100.,
         weightkg: pokemon.weight as f32 / 10.,
         prevo: None,
         evoType: None,
@@ -347,7 +345,7 @@ fn make_poke(
         evoItem: None,
         evoCondition: None,
         evos: None,
-        eggGroups,
+        eggGroups: egg_groups,
         baseSpecies: None,
         forme: None,
         otherFormes: None,
@@ -656,7 +654,6 @@ fn handle_evos(
 #[derive(Serialize)]
 struct AbilityJs {
     name: String,
-    rating: f32,
     num: u32,
     desc: String,
     shortDesc: String,
@@ -674,7 +671,6 @@ fn dump_abilities(_rom_path: &Path, out_path: &Path, text_files: &[TextFile]) ->
                 to_id(name.clone()),
                 AbilityJs {
                     name: name.clone(),
-                    rating: 1.,
                     num: index as _,
                     desc: ability_descs[index].clone(),
                     shortDesc: ability_descs[index].clone(),
@@ -684,12 +680,8 @@ fn dump_abilities(_rom_path: &Path, out_path: &Path, text_files: &[TextFile]) ->
         .skip(1)
         .collect();
 
-    let mut f = File::create(out_path.join("abilities.js"))?;
-    write!(
-        f,
-        "exports.BattleAbilities = {}",
-        serde_json::to_string_pretty(&ability_map)?
-    )?;
+    let mut f = File::create(out_path.join("abilities.json"))?;
+    write!(f, "{}", serde_json::to_string_pretty(&ability_map)?)?;
 
     Ok(())
 }
@@ -800,12 +792,8 @@ fn dump_moves(rom_path: &Path, out_path: &Path, text_files: &[TextFile]) -> Resu
         .skip(1)
         .collect();
 
-    let mut f = File::create(out_path.join("moves.js"))?;
-    write!(
-        f,
-        "exports.BattleMovedex = {}",
-        serde_json::to_string_pretty(&move_map)?
-    )?;
+    let mut f = File::create(out_path.join("moves.json"))?;
+    write!(f, "{}", serde_json::to_string_pretty(&move_map)?)?;
     Ok(())
 }
 

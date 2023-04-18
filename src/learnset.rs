@@ -76,12 +76,8 @@ pub fn dump_learnsets(
             )
         })
         .collect();
-    let mut f = File::create(out_path.join("learnsets.js"))?;
-    write!(
-        f,
-        "exports.BattleLearnsets = {}",
-        serde_json::to_string_pretty(&learnset_map)?
-    )?;
+    let mut f = File::create(out_path.join("learnsets.json"))?;
+    write!(f, "{}", serde_json::to_string_pretty(&learnset_map)?)?;
     Ok(())
 }
 
@@ -94,7 +90,7 @@ fn make_lvl_up_learnset(lvl_ups: &LevelUpMoves, move_names: &[String]) -> Learns
             .map(|lvl_up| {
                 (
                     to_id(move_names[lvl_up.move_id as usize].to_owned()),
-                    vec![format!("9L{}", lvl_up.level)],
+                    vec![format!("7L{}", lvl_up.level)],
                 )
             })
             .collect::<IndexMap<String, Vec<String>>>(),
@@ -217,7 +213,7 @@ fn make_tm_learnset(pokemon: &PokemonStats, _move_names: &[String]) -> Learnset 
             .iter()
             .enumerate()
             .filter_map(|(index, name)| match check_bit(&pokemon.tm_bits, index) {
-                true => Some((to_id(name.to_string()), vec!["9M".to_string()])),
+                true => Some((to_id(name.to_string()), vec!["7M".to_string()])),
                 false => None,
             })
             .collect(),
@@ -241,7 +237,7 @@ fn make_beach_learnset(pokemon: &PokemonStats, move_names: &[String]) -> Learnse
                 |(index, move_id)| match check_bit(&pokemon.beach_bits, index) {
                     true => Some((
                         to_id(move_names[*move_id as usize].to_owned()),
-                        vec!["9T".to_string()],
+                        vec!["7T".to_string()],
                     )),
                     false => None,
                 },
