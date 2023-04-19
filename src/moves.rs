@@ -76,7 +76,7 @@ enum MoveJsMultihit {
 }
 
 #[serde_with::skip_serializing_none]
-#[derive(Serialize, Default)]
+#[derive(Serialize, Default, PartialEq)]
 struct BoostTable {
     atk: Option<i8>,
     def: Option<i8>,
@@ -119,6 +119,8 @@ struct MoveJs {
     drain: Option<(i32, i32)>,
     recoil: Option<(i32, i32)>,
     multihit: Option<MoveJsMultihit>,
+    #[serde(rename = "self")]
+    selfEffects: Option<SelfEffect>,
 
     secondaries: Option<Vec<MoveSecondaryJs>>,
     flags: BTreeMap<String, u8>,
@@ -185,59 +187,50 @@ fn get_drain(stats: &MoveStats) -> Option<(i32, i32)> {
     }
 }
 
-fn stat_table(stat: u8, change: i8) -> BoostTable {
+fn boost_table_set(stat: u8, change: i8, table: &mut BoostTable) {
     match stat {
-        1 => BoostTable {
-            atk: Some(change),
-            ..default()
-        },
-        2 => BoostTable {
-            def: Some(change),
-            ..default()
-        },
-        3 => BoostTable {
-            spa: Some(change),
-            ..default()
-        },
-        4 => BoostTable {
-            spd: Some(change),
-            ..default()
-        },
-        5 => BoostTable {
-            spe: Some(change),
-            ..default()
-        },
-        6 => BoostTable {
-            accuracy: Some(change),
-            ..default()
-        },
-        7 => BoostTable {
-            evasion: Some(change),
-            ..default()
-        },
-        8 => BoostTable {
-            atk: Some(change),
-            def: Some(change),
-            spa: Some(change),
-            spd: Some(change),
-            spe: Some(change),
-            ..default()
-        },
-        _ => default(),
+        1 => table.atk = Some(change),
+        2 => table.def = Some(change),
+        3 => table.spa = Some(change),
+        4 => table.spd = Some(change),
+        5 => table.spe = Some(change),
+        6 => table.accuracy = Some(change),
+        7 => table.evasion = Some(change),
+        8 => {
+            table.atk = Some(change);
+            table.def = Some(change);
+            table.spa = Some(change);
+            table.spd = Some(change);
+            table.spe = Some(change);
+        }
+        _ => {}
     }
 }
+
+fn boost_table(stat: u8, change: i8) -> BoostTable {
+    let mut table: BoostTable = default();
+    boost_table_set(stat, change, &mut table);
+    table
+}
+
+fn is_secondary_boost(_stat: u8, change: i8, chance: u8) -> bool {
+    !(chance == 100 && change < 0)
+}
+
 const INFLICT: &[&str] = &["none", "par", "slp", "frz", "brn", "psn", "tox"];
 fn get_secondaries(stats: &MoveStats) -> Option<Vec<MoveSecondaryJs>> {
-    let mut vec = Vec::new();
-    if stats.inflict > 0 && stats.inflict_percent > 0 {
+    let mut effects = Vec::new();
+    // Capture effects are not secondary effects
+    const CAPTURE_EFFECT: u16 = 8;
+    if stats.inflict > 0 && stats.inflict != CAPTURE_EFFECT && stats.inflict_percent > 0 {
         if (stats.inflict as usize) < INFLICT.len() {
-            vec.push(MoveSecondaryJs {
+            effects.push(MoveSecondaryJs {
                 chance: stats.inflict_percent as _,
                 status: Some(INFLICT[stats.inflict as usize].to_owned()),
                 ..default()
             })
         } else {
-            vec.push(MoveSecondaryJs {
+            effects.push(MoveSecondaryJs {
                 chance: stats.inflict_percent as _,
                 volatileStatus: Some(stats.inflict.to_string()),
                 ..default()
@@ -246,7 +239,7 @@ fn get_secondaries(stats: &MoveStats) -> Option<Vec<MoveSecondaryJs>> {
     }
 
     if stats.flinch > 0 {
-        vec.push(MoveSecondaryJs {
+        effects.push(MoveSecondaryJs {
             chance: stats.flinch as _,
             volatileStatus: Some("flinch".to_owned()),
             ..default()
@@ -256,27 +249,48 @@ fn get_secondaries(stats: &MoveStats) -> Option<Vec<MoveSecondaryJs>> {
     for i in 0..3 {
         if stats.stat[i] > 0 {
             if stats.quality == 7 {
-                vec.push(MoveSecondaryJs {
+                if !is_secondary_boost(stats.stat[i], stats.stat_stage[i], stats.stat_percent[i]) {
+                    continue;
+                }
+                effects.push(MoveSecondaryJs {
                     chance: stats.stat_percent[i] as _,
                     selfEffects: Some(SelfEffect {
-                        boosts: stat_table(stats.stat[i], stats.stat_stage[i]),
+                        boosts: boost_table(stats.stat[i], stats.stat_stage[i]),
                     }),
                     ..default()
                 })
             } else {
-                vec.push(MoveSecondaryJs {
+                effects.push(MoveSecondaryJs {
                     chance: stats.stat_percent[i] as _,
-                    boosts: Some(stat_table(stats.stat[i], stats.stat_stage[i])),
+                    boosts: Some(boost_table(stats.stat[i], stats.stat_stage[i])),
                     ..default()
                 })
             }
         }
     }
 
-    if vec.is_empty() {
+    if effects.is_empty() {
         None
     } else {
-        Some(vec)
+        Some(effects)
+    }
+}
+
+fn get_self_effect(stats: &MoveStats) -> Option<SelfEffect> {
+    let mut table: BoostTable = default();
+    for i in 0..3 {
+        if stats.stat[i] > 0
+            && stats.quality == 7
+            && !is_secondary_boost(stats.stat[i], stats.stat_stage[i], stats.stat_percent[i])
+        {
+            boost_table_set(stats.stat[i], stats.stat_stage[i], &mut table)
+        }
+    }
+
+    if table == default() {
+        None
+    } else {
+        Some(SelfEffect { boosts: table })
     }
 }
 
@@ -329,6 +343,7 @@ pub fn dump_moves(rom_path: &Path, out_path: &Path, text_files: &[TextFile]) -> 
                     drain: get_drain(cmove),
                     recoil: get_recoil(cmove),
                     secondaries: get_secondaries(cmove),
+                    selfEffects: get_self_effect(cmove),
                     r#type: type_names[cmove.move_type as usize].clone(),
                     target: match cmove.target {
                         1 | 2 => "adjacentAlly",
