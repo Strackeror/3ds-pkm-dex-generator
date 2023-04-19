@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, env, fs::File, io::Write, path::Path, vec};
 
-use binrw::{BinRead, FilePtr};
+use binrw::BinRead;
 use color_eyre::Result;
 use indexmap::{IndexMap, IndexSet};
 use serde::Serialize;
@@ -11,6 +11,7 @@ use crate::garc::GarcFile;
 mod garc;
 mod text;
 
+mod moves;
 mod learnset;
 
 #[allow(dead_code)]
@@ -62,56 +63,7 @@ struct PokemonEvolution {
     level: u8,
 }
 
-#[allow(dead_code)]
-#[derive(BinRead, Debug)]
-struct MoveStats {
-    move_type: u8,
-    quality: u8,
-    category: u8,
-    power: u8,
 
-    accuracy: u8,
-    pp: u8,
-    priority: i8,
-    hit_min_max: u8,
-
-    inflict: u16,
-    inflict_percent: u8,
-    inflict_duration: u8,
-
-    turn_min: u8,
-    turn_max: u8,
-    crit_stage: u8,
-    flinch: u8,
-
-    effect_sequence: u16,
-    recoil: u8,
-    heal: u8,
-
-    target: u8,
-    stat: [u8; 3],
-    stat_stage: [u8; 3],
-    stat_percent: [u8; 3],
-
-    z_move: u16,
-    z_power: u8,
-    z_effect: u8,
-
-    refresh_type: u8,
-    refresh_percent: u8,
-
-    flags: u32,
-}
-
-#[allow(dead_code)]
-#[derive(BinRead)]
-#[br(magic = b"WD")]
-struct BinLinkedMoves {
-    #[br(dbg)]
-    ccount: u16,
-    #[br(count = ccount)]
-    files: Vec<FilePtr<u32, MoveStats>>,
-}
 
 mod text_ids {
     pub const SPECIES_NAMES: usize = 60;
@@ -686,116 +638,6 @@ fn dump_abilities(_rom_path: &Path, out_path: &Path, text_files: &[TextFile]) ->
     Ok(())
 }
 
-#[derive(Serialize)]
-#[serde(untagged)]
-enum MoveJsAccuracy {
-    Number(i32),
-    Boolean(bool),
-}
-
-#[allow(non_snake_case)]
-#[derive(Serialize)]
-struct MoveJs {
-    num: u32,
-    accuracy: MoveJsAccuracy,
-    basePower: u32,
-    category: String,
-    name: String,
-    pp: u32,
-    priority: i32,
-    flags: BTreeMap<String, u8>,
-    r#type: String,
-    target: String,
-    desc: String,
-    shortDesc: String,
-}
-
-fn move_flags(mmove: &MoveStats) -> BTreeMap<String, u8> {
-    const FLAGS: &[(u32, &str)] = &[
-        (1 << 0, "contact"),
-        (1 << 1, "charge"),
-        (1 << 2, "recharge"),
-        (1 << 3, "protect"),
-        (1 << 4, "reflectable"),
-        (1 << 5, "snatch"),
-        (1 << 6, "mirror"),
-        (1 << 7, "punch"),
-        (1 << 8, "sound"),
-        (1 << 9, "gravity"),
-        (1 << 10, "defrost"),
-        (1 << 12, "heal"),
-        (1 << 13, "bypasssub"),
-    ];
-
-    FLAGS
-        .iter()
-        .filter_map(|(bit, text)| {
-            if bit & mmove.flags != 0 {
-                Some(((*text).to_owned(), 1))
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
-fn dump_moves(rom_path: &Path, out_path: &Path, text_files: &[TextFile]) -> Result<()> {
-    let move_names = &text_files[text_ids::MOVE_NAMES].lines;
-    let move_descs = &text_files[text_ids::MOVE_DESCS].lines;
-    let type_names = &text_files[text_ids::TYPE_NAMES].lines;
-
-    let move_path = rom_path.join(garc_files::BASE_PATH).join(garc_files::MOVE);
-    let moves =
-        &garc::read_files::<BinLinkedMoves>(&garc::GarcFile::read_le(&mut File::open(move_path)?)?)
-            [0]
-        .files;
-    println!("{:?}", moves[1]);
-    let move_map: IndexMap<String, MoveJs> = moves
-        .iter()
-        .enumerate()
-        .map(|(index, cmove)| {
-            let name = &move_names[index];
-            (
-                to_id(name.clone()),
-                MoveJs {
-                    num: index as _,
-                    name: name.clone(),
-                    accuracy: match cmove.accuracy {
-                        101 => MoveJsAccuracy::Boolean(true),
-                        a => MoveJsAccuracy::Number(a as _),
-                    },
-                    basePower: cmove.power as _,
-                    pp: cmove.pp as _,
-                    category: match cmove.category {
-                        1 => "Physical",
-                        2 => "Special",
-                        _ => "Status",
-                    }
-                    .to_owned(),
-                    priority: cmove.priority as _,
-                    flags: move_flags(cmove),
-                    r#type: type_names[cmove.move_type as usize].clone(),
-                    target: match cmove.target {
-                        1 | 2 => "adjacentAlly",
-                        4 => "allAdjacent",
-                        5 => "allAdjacentFoes",
-                        7 => "self",
-                        9 => "randomNormal",
-                        _ => "normal",
-                    }
-                    .to_owned(),
-                    desc: move_descs[index].clone(),
-                    shortDesc: move_descs[index].clone(),
-                },
-            )
-        })
-        .skip(1)
-        .collect();
-
-    let mut f = File::create(out_path.join("moves.json"))?;
-    write!(f, "{}", serde_json::to_string_pretty(&move_map)?)?;
-    Ok(())
-}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -807,6 +649,6 @@ fn main() {
     let text_files = garc::read_files::<text::TextFile>(&text_garc_file);
     let names = dump_pokes(path, out_path, &text_files).unwrap();
     learnset::dump_learnsets(path, out_path, &text_files, &names).unwrap();
+    moves::dump_moves(path, out_path, &text_files).unwrap();
     dump_abilities(path, out_path, &text_files).unwrap();
-    dump_moves(path, out_path, &text_files).unwrap();
 }
