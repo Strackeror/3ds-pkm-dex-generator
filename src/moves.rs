@@ -116,6 +116,7 @@ struct MoveJs {
     pp: u32,
     priority: i32,
     critRatio: i32,
+    willCrit: Option<bool>,
     drain: Option<(i32, i32)>,
     recoil: Option<(i32, i32)>,
     multihit: Option<MoveJsMultihit>,
@@ -339,6 +340,10 @@ pub fn dump_moves(rom_path: &Path, out_path: &Path, text_files: &[TextFile]) -> 
                     .to_owned(),
                     priority: cmove.priority as _,
                     critRatio: (cmove.crit_stage as i32) + 1,
+                    willCrit: match cmove.crit_stage {
+                        6 => Some(true),
+                        _ => None,
+                    },
                     flags: move_flags(cmove),
                     drain: get_drain(cmove),
                     recoil: get_recoil(cmove),
