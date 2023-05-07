@@ -106,6 +106,15 @@ struct MoveSecondaryJs {
 
 #[allow(non_snake_case)]
 #[serde_with::skip_serializing_none]
+#[derive(Serialize, Default)]
+struct MoveJsZMove {
+    basePower: Option<i32>,
+    effect: Option<String>,
+    boosts: Option<BoostTable>,
+}
+
+#[allow(non_snake_case)]
+#[serde_with::skip_serializing_none]
 #[derive(Serialize)]
 struct MoveJs {
     num: u32,
@@ -116,19 +125,20 @@ struct MoveJs {
     pp: u32,
     priority: i32,
     critRatio: i32,
+    r#type: String,
+    target: String,
+    desc: String,
+    shortDesc: String,
+    flags: BTreeMap<String, u8>,
+    
     willCrit: Option<bool>,
     drain: Option<(i32, i32)>,
     recoil: Option<(i32, i32)>,
     multihit: Option<MoveJsMultihit>,
     #[serde(rename = "self")]
     selfEffects: Option<SelfEffect>,
-
+    zMove: Option<MoveJsZMove>,
     secondaries: Option<Vec<MoveSecondaryJs>>,
-    flags: BTreeMap<String, u8>,
-    r#type: String,
-    target: String,
-    desc: String,
-    shortDesc: String,
 }
 
 fn move_flags(mmove: &MoveStats) -> BTreeMap<String, u8> {
@@ -306,6 +316,16 @@ fn get_multihit(move_stats: &MoveStats) -> Option<MoveJsMultihit> {
     }
 }
 
+fn get_z_move(move_stats: &MoveStats) -> Option<MoveJsZMove> {
+    match move_stats.z_power {
+        0 => None,
+        n => Some(MoveJsZMove {
+            basePower: Some(n as i32),
+            ..default()
+        }),
+    }
+}
+
 pub fn dump_moves(rom_path: &Path, out_path: &Path, text_files: &[TextFile]) -> Result<()> {
     let move_names = &text_files[text_ids::MOVE_NAMES].lines;
     let move_descs = &text_files[text_ids::MOVE_DESCS].lines;
@@ -360,6 +380,7 @@ pub fn dump_moves(rom_path: &Path, out_path: &Path, text_files: &[TextFile]) -> 
                     }
                     .to_owned(),
                     multihit: get_multihit(cmove),
+                    zMove: get_z_move(cmove),
                     desc: move_descs[index].clone(),
                     shortDesc: move_descs[index].clone(),
                 },
