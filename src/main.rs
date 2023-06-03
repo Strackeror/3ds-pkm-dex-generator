@@ -406,6 +406,8 @@ const FORME_NAMES: &[((&str, usize), &str)] = &[
     (("Wormadam", 1), "Sandy"),
     (("Wormadam", 2), "Trash"),
     (("Cherrim", 1), "Sunshine"),
+    (("Shellos", 1), "East"),
+    (("Gastrodon", 1), "East"),
     (("Lopunny", 1), "Mega"),
     (("Garchomp", 1), "Mega"),
     (("Lucario", 1), "Mega"),
