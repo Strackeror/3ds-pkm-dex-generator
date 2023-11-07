@@ -87,7 +87,7 @@ pub struct GarcFile {
     fimb: FileImageBytes,
 }
 
-pub fn read_file<T: BinRead>(file: usize, subfile: usize, garc: &GarcFile) -> Option<T>
+pub fn _read_file<T: BinRead>(file: usize, subfile: usize, garc: &GarcFile) -> Option<T>
 where
     for<'a> <T as binrw::BinRead>::Args<'a>: std::default::Default,
 {

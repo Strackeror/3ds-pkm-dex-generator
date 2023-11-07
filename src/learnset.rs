@@ -1,10 +1,9 @@
-use super::garc_files;
-use super::text::TextFile;
-use super::text_ids;
-use super::to_id;
-use crate::garc;
-use crate::garc::GarcFile;
-use crate::PokemonStats;
+use crate::{
+    garc::{self, GarcFile},
+    garc_files,
+    text::TextFile,
+    text_ids, to_id, PokemonStats,
+};
 use binrw::{until_eof, BinRead};
 use color_eyre::Result;
 use indexmap::IndexMap;
@@ -25,23 +24,31 @@ struct LevelUpMoves {
     #[br(parse_with = until_eof)]
     lvl_moves: Vec<LevelUpMove>,
 }
+
+#[allow(non_camel_case_types)]
 #[derive(Serialize)]
-struct Learnset {
-    learnset: IndexMap<String, Vec<String>>,
+enum Method {
+    lvl,
+    tm,
+    tutor,
+    _egg,
 }
 
+#[serde_with::skip_serializing_none]
+#[derive(Serialize)]
+struct LearnsetEntry {
+    #[serde[rename = "move"]]
+    move_: String,
+    how: Method,
+    level: Option<i16>,
+}
+
+#[derive(Serialize)]
+struct Learnset(Vec<LearnsetEntry>);
+
 impl Learnset {
-    fn merge(mut self, other: Self) -> Self {
-        for (key, mut moves) in other.learnset {
-            match self.learnset.get_mut(&key) {
-                Some(l) => {
-                    l.append(&mut moves);
-                }
-                None => {
-                    self.learnset.insert(key, moves);
-                }
-            }
-        }
+    fn merge(mut self, mut other: Learnset) -> Self {
+        self.0.append(&mut other.0);
         self
     }
 }
@@ -82,19 +89,18 @@ pub fn dump_learnsets(
 }
 
 fn make_lvl_up_learnset(lvl_ups: &LevelUpMoves, move_names: &[String]) -> Learnset {
-    Learnset {
-        learnset: lvl_ups
+    Learnset(
+        lvl_ups
             .lvl_moves
             .iter()
             .take_while(|lvl_up| lvl_up.move_id > 0)
-            .map(|lvl_up| {
-                (
-                    to_id(move_names[lvl_up.move_id as usize].to_owned()),
-                    vec![format!("7L{}", lvl_up.level)],
-                )
+            .map(|lvl_up| LearnsetEntry {
+                move_: to_id(move_names[lvl_up.move_id as usize].to_owned()),
+                how: Method::lvl,
+                level: Some(lvl_up.level),
             })
-            .collect::<IndexMap<String, Vec<String>>>(),
-    }
+            .collect(),
+    )
 }
 
 const TMS: &[&str] = &[
@@ -208,16 +214,19 @@ fn check_bit(bits: &[u8], index: usize) -> bool {
 }
 
 fn make_tm_learnset(pokemon: &PokemonStats, _move_names: &[String]) -> Learnset {
-    Learnset {
-        learnset: TMS
-            .iter()
+    Learnset(
+        TMS.iter()
             .enumerate()
             .filter_map(|(index, name)| match check_bit(&pokemon.tm_bits, index) {
-                true => Some((to_id(name.to_string()), vec!["7M".to_string()])),
+                true => Some(LearnsetEntry {
+                    move_: to_id(name.to_string()),
+                    how: Method::tm,
+                    level: None,
+                }),
                 false => None,
             })
             .collect(),
-    }
+    )
 }
 
 #[allow(clippy::zero_prefixed_literal)]
@@ -229,19 +238,20 @@ const BEACH_TUTORS: &[u16] = &[
 ];
 
 fn make_beach_learnset(pokemon: &PokemonStats, move_names: &[String]) -> Learnset {
-    Learnset {
-        learnset: BEACH_TUTORS
+    Learnset(
+        BEACH_TUTORS
             .iter()
             .enumerate()
             .filter_map(
                 |(index, move_id)| match check_bit(&pokemon.beach_bits, index) {
-                    true => Some((
-                        to_id(move_names[*move_id as usize].to_owned()),
-                        vec!["7T".to_string()],
-                    )),
+                    true => Some(LearnsetEntry {
+                        move_: to_id(move_names[*move_id as usize].to_owned()),
+                        how: Method::tutor,
+                        level: None,
+                    }),
                     false => None,
                 },
             )
             .collect(),
-    }
+    )
 }
