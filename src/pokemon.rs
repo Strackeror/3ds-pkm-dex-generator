@@ -54,6 +54,7 @@ struct PokemonJs {
     baseStats: Stats,
     abilities: BTreeMap<String, String>,
     weightkg: f32,
+
     prevo: Option<String>,
     evoLevel: Option<u16>,
     evoType: Option<String>,
@@ -66,6 +67,8 @@ struct PokemonJs {
     forme: Option<String>,
     formes: Option<Vec<String>>,
     requiredItems: Option<Vec<String>>,
+
+    unusable: Option<bool>,
 }
 
 const FORME_NAMES: &[((&str, usize), &str)] = &[
@@ -244,16 +247,16 @@ const FORME_NAMES: &[((&str, usize), &str)] = &[
     (("Furfrou", 9), "Pharaoh"),
     (("Sliggoo", 1), "Hisui"),
     (("Goodra", 1), "Hisui"),
-    //(("Pumpkaboo", 1), "Small"),
-    //(("Pumpkaboo", 2), "Large"),
-    //(("Pumpkaboo", 3), "Super"),
-    //(("Gourgeist", 1), "Small"),
-    //(("Gourgeist", 2), "Large"),
+    (("Pumpkaboo", 1), "Small"),
+    (("Pumpkaboo", 2), "Large"),
+    (("Pumpkaboo", 3), "Super"),
+    (("Gourgeist", 1), "Small"),
+    (("Gourgeist", 2), "Large"),
     (("Gourgeist", 3), "Super"),
     (("Avalugg", 1), "Hisui"),
     (("Xerneas", 1), "Neutral"),
     (("Zygarde", 2), "10%"),
-    //(("Zygarde", 3), "50%"),
+    (("Zygarde", 3), "50%"),
     (("Zygarde", 4), "Complete"),
     (("Diancie", 1), "Mega"),
     (("Hoopa", 1), "Unbound"),
@@ -387,11 +390,12 @@ pub fn dump_pokes(
 
     let mut sorted_dex_list: Vec<_> = dex_map.into_values().collect();
     sorted_dex_list.sort_by(|l, r| l.num.cmp(&r.num));
-    let dex_map: IndexMap<String, PokemonJs> = sorted_dex_list
+    let mut dex_map: IndexMap<String, PokemonJs> = sorted_dex_list
         .into_iter()
         .skip(1) // Skip Egg
         .map(|dex| (to_id(dex.name.clone()), dex))
         .collect();
+    manual_patches(&mut dex_map);
 
     let mut f = File::create(out_path.join("pokedex.json"))?;
     write!(f, "{}", serde_json::to_string_pretty(&dex_map)?)?;
@@ -491,6 +495,7 @@ fn make_poke(
         forme: None,
         formes: None,
         requiredItems: None,
+        unusable: None,
     }
 }
 
@@ -577,8 +582,69 @@ fn handle_mega_evos(
             };
             let mut required_items = new_forme.requiredItems.clone().unwrap_or_default();
             required_items.push(item_names[mega_evo.argument as usize].clone());
-            println!("{:?}", (mega_evo.argument, &required_items));
             new_forme.requiredItems = Some(required_items);
         }
     }
+}
+
+const UNUSABLES: &[&str] = &[
+    "mewtwo",
+    "mewtwomegax",
+    "mewtwomegay",
+    "kyogre",
+    "kyogreprimal",
+    "groudon",
+    "groudonprimal",
+    "rayquaza",
+    "rayquazamega",
+    "dialga",
+    "palkia",
+    "arceus",
+    "zekrom",
+    "reshiram",
+    "xerneas",
+    "yveltal",
+    "zygardecomplete",
+];
+
+const REMOVE: &[&str] = &[
+    "pumpkaboosmall",
+    "pumpkaboolarge",
+    "pumpkaboosuper",
+    "gourgeist",
+    "gourgeistlarge",
+    "zygarde",
+];
+
+fn manual_patches(dex_map: &mut IndexMap<String, PokemonJs>) {
+    for unusable in UNUSABLES {
+        let Some(entry) = dex_map.get_mut(*unusable) else {
+            continue;
+        };
+        entry.unusable = Some(true);
+    }
+
+    for remove in REMOVE {
+        let Some(entry) = dex_map.get_mut(*remove) else {
+            continue;
+        };
+        let new_formes: Vec<String> = entry
+            .formes
+            .as_ref()
+            .unwrap()
+            .iter()
+            .filter(|f| to_id((*f).clone()) != *remove)
+            .cloned()
+            .collect();
+        for n in &new_formes {
+          let Some(entry) = dex_map.get_mut(&to_id(n.clone())) else {
+            continue;
+          };
+          entry.formes = Some(new_formes.clone());
+        }
+        dex_map.shift_remove(*remove);
+    }
+
+    let porygon_z = dex_map.get_mut("porygonz").unwrap();
+    porygon_z.evos = Some(vec![]);
 }

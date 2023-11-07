@@ -70,7 +70,7 @@ pub fn dump_learnsets(
         .join(garc_files::POKEMON_STATS);
     let pokemons =
         garc::read_files::<PokemonStats>(&GarcFile::read_le(&mut File::open(pokemon_path)?)?);
-    let learnset_map: IndexMap<String, Learnset> = lvl_ups
+    let mut learnset_map: IndexMap<String, Learnset> = lvl_ups
         .iter()
         .enumerate()
         .filter(|(index, _)| poke_names.contains_key(index))
@@ -83,6 +83,7 @@ pub fn dump_learnsets(
             )
         })
         .collect();
+    manual_patches(&mut learnset_map);
     let mut f = File::create(out_path.join("learnsets.json"))?;
     write!(f, "{}", serde_json::to_string_pretty(&learnset_map)?)?;
     Ok(())
@@ -254,4 +255,72 @@ fn make_beach_learnset(pokemon: &PokemonStats, move_names: &[String]) -> Learnse
             )
             .collect(),
     )
+}
+
+fn manual_patches(learnset_map: &mut  IndexMap<String, Learnset>) {
+  const COMBAT_FORMES: &[&str] = &[
+    "minior",
+    "venusaurmega",
+    "charizardmegax",
+    "charizardmegay",
+    "blastoisemega",
+    "beedrillmega",
+    "pidgeotmega",
+    "alakazammega",
+    "slowbromega",
+    "gengarmega",
+    "kangaskhanmega",
+    "pinsirmega",
+    "gyaradosmega",
+    "aerodactylmega",
+    "ampharosmega",
+    "steelixmega",
+    "scizormega",
+    "heracrossmega",
+    "houndoommega",
+    "tyranitarmega",
+    "sceptilemega",
+    "blazikenmega",
+    "swampertmega",
+    "gardevoirmega",
+    "sableyemega",
+    "mawilemega",
+    "aggronmega",
+    "medichammega",
+    "manectricmega",
+    "sharpedomega",
+    "cameruptmega",
+    "altariamega",
+    "banettemega",
+    "absolmega",
+    "glaliemega",
+    "salamencemega",
+    "metagrossmega",
+    "latiasmega",
+    "latiosmega",
+    "lopunnymega",
+    "garchompmega",
+    "lucariomega",
+    "abomasnowmega",
+    "gallademega",
+    "audinomega",
+    "dianciemega",
+    "mimikyubusted",
+    "mimikyubustedtotem",
+    "wishiwashischool",
+    "shayminsky",
+    "darmanitanzen",
+    "greninjaash",
+    "kyuremwhite",
+    "kyuremblack",
+    "aegislashblade",
+    "meloettapirouette",
+    "cherrimsunshine",
+    "castformsunny",
+    "castformsnowy",
+    "castformrainy"
+  ];
+  for combat_forme in COMBAT_FORMES {
+      learnset_map.shift_remove(*combat_forme);
+  }
 }

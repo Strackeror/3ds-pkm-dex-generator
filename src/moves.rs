@@ -130,7 +130,7 @@ struct MoveJs {
     desc: String,
     shortDesc: String,
     flags: BTreeMap<String, u8>,
-    
+
     willCrit: Option<bool>,
     drain: Option<(i32, i32)>,
     recoil: Option<(i32, i32)>,
@@ -326,6 +326,67 @@ fn get_z_move(move_stats: &MoveStats) -> Option<MoveJsZMove> {
     }
 }
 
+const BULLET_MOVES: &[&str] = &[
+    "triplecannonade",
+    "bugbomber",
+    "featherball",
+    "scumshot",
+    "magneticburst",
+    "sludgeshot",
+    "mudbomb",
+    "zapcannon",
+    "rockwrecker",
+    "electroball",
+    "gyroball",
+    "shadowball",
+    "energyball",
+    "sludgebomb",
+    "focusblast",
+    "aurasphere",
+    "searingshot",
+    "weatherball",
+    "seedbomb",
+    "iceball",
+    "bulletseed",
+    "rockblast",
+];
+
+const PULSE_MOVES: &[&str] = &[
+    "aurasphere",
+    "darkpulse",
+    "waterpulse",
+    "healpulse",
+    "dragonpulse",
+    "torrentialpulse",
+];
+
+const BITE_MOVES: &[&str] = &[
+    "jaggedfangs",
+    "crunch",
+    "psychicfangs",
+    "poisonfang",
+    "firefang",
+    "icefang",
+    "thunderfang",
+  ];
+
+
+fn manual_patches(mut moves: IndexMap<String, MoveJs>) -> IndexMap<String, MoveJs> {
+    for mv in BULLET_MOVES {
+        let Some(mv_js) = moves.get_mut(*mv) else { continue; };
+        mv_js.flags.insert("bullet".to_owned(), 1);
+    }
+    for mv in PULSE_MOVES {
+        let Some(mv_js) = moves.get_mut(*mv) else { continue; };
+        mv_js.flags.insert("pulse".to_owned(), 1);
+    }
+    for mv in BITE_MOVES {
+        let Some(mv_js) = moves.get_mut(*mv) else { continue; };
+        mv_js.flags.insert("bite".to_owned(), 1);
+    }
+    moves
+}
+
 pub fn dump_moves(rom_path: &Path, out_path: &Path, text_files: &[TextFile]) -> Result<()> {
     let move_names = &text_files[text_ids::MOVE_NAMES].lines;
     let move_descs = &text_files[text_ids::MOVE_DESCS].lines;
@@ -389,6 +450,7 @@ pub fn dump_moves(rom_path: &Path, out_path: &Path, text_files: &[TextFile]) -> 
         .skip(1)
         .collect();
 
+    let move_map = manual_patches(move_map);
     let mut f = File::create(out_path.join("moves.json"))?;
     write!(f, "{}", serde_json::to_string_pretty(&move_map)?)?;
     Ok(())
