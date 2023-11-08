@@ -36,7 +36,7 @@ struct PokemonMegaEvolutions {
 }
 
 #[allow(non_snake_case)]
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 struct PokemonJsGenderRatio {
     M: f32,
     F: f32,
@@ -44,7 +44,7 @@ struct PokemonJsGenderRatio {
 
 #[allow(non_snake_case)]
 #[serde_with::skip_serializing_none]
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 struct PokemonJs {
     num: u32,
     name: String,
@@ -525,9 +525,6 @@ fn handle_evos(
 
             let evo_name = &poke_entry.name;
             evo_set.insert(evo_name.clone());
-            if poke_entry.prevo.is_some() {
-                continue;
-            }
             poke_entry.prevo = Some(current_name.clone());
 
             if evo.level > 0 {
@@ -551,10 +548,39 @@ fn handle_evos(
                     poke_entry.evoType = Some("trade".to_owned());
                     poke_entry.evoItem = Some(item_names[evo.argument as usize].clone());
                 }
-                8 | 17 | 18 | 19 | 20 => {
+                8 => {
                     poke_entry.evoType = Some("useItem".to_owned());
                     poke_entry.evoItem = Some(item_names[evo.argument as usize].clone());
                 }
+                17 => {
+                    poke_entry.evoType = Some("useItem".to_owned());
+                    poke_entry.evoItem = Some(item_names[evo.argument as usize].clone());
+                    poke_entry.evoCondition = Some("on male".to_owned());
+                }
+                18 => {
+                    poke_entry.evoType = Some("useItem".to_owned());
+                    poke_entry.evoItem = Some(item_names[evo.argument as usize].clone());
+                    poke_entry.evoCondition = Some("on female".to_owned());
+                }
+                19 => {
+                    poke_entry.evoType = Some("levelHold".to_owned());
+                    poke_entry.evoItem = Some(item_names[evo.argument as usize].clone());
+                    if poke_entry.evoCondition == Some("in the night".to_owned()) {
+                        poke_entry.evoCondition = None;
+                    } else {
+                        poke_entry.evoCondition = Some("in the day".to_owned());
+                    }
+                }
+                20 => {
+                    poke_entry.evoType = Some("levelHold".to_owned());
+                    poke_entry.evoItem = Some(item_names[evo.argument as usize].clone());
+                    if poke_entry.evoCondition == Some("in the day".to_owned()) {
+                        poke_entry.evoCondition = None;
+                    } else {
+                        poke_entry.evoCondition = Some("in the night".to_owned());
+                    }
+                }
+
                 _ => {}
             }
         }
@@ -637,10 +663,10 @@ fn manual_patches(dex_map: &mut IndexMap<String, PokemonJs>) {
             .cloned()
             .collect();
         for n in &new_formes {
-          let Some(entry) = dex_map.get_mut(&to_id(n.clone())) else {
-            continue;
-          };
-          entry.formes = Some(new_formes.clone());
+            let Some(entry) = dex_map.get_mut(&to_id(n.clone())) else {
+                continue;
+            };
+            entry.formes = Some(new_formes.clone());
         }
         dex_map.shift_remove(*remove);
     }
