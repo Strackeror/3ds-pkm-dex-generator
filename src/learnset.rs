@@ -1,6 +1,6 @@
 use crate::{
     garc::{self, GarcFile},
-    garc_files,
+    garc_files, pokemon,
     text::TextFile,
     text_ids, to_id, PokemonStats,
 };
@@ -79,7 +79,8 @@ pub fn dump_learnsets(
                 to_id(poke_names[&index].to_owned()),
                 make_lvl_up_learnset(lvl_ups, move_names)
                     .merge(make_tm_learnset(&pokemons[index], move_names))
-                    .merge(make_beach_learnset(&pokemons[index], move_names)),
+                    .merge(make_beach_learnset(&pokemons[index], move_names))
+                    .merge(make_tutor_learnset(&pokemons[index], move_names)),
             )
         })
         .collect();
@@ -257,70 +258,95 @@ fn make_beach_learnset(pokemon: &PokemonStats, move_names: &[String]) -> Learnse
     )
 }
 
-fn manual_patches(learnset_map: &mut  IndexMap<String, Learnset>) {
-  const COMBAT_FORMES: &[&str] = &[
-    "minior",
-    "venusaurmega",
-    "charizardmegax",
-    "charizardmegay",
-    "blastoisemega",
-    "beedrillmega",
-    "pidgeotmega",
-    "alakazammega",
-    "slowbromega",
-    "gengarmega",
-    "kangaskhanmega",
-    "pinsirmega",
-    "gyaradosmega",
-    "aerodactylmega",
-    "ampharosmega",
-    "steelixmega",
-    "scizormega",
-    "heracrossmega",
-    "houndoommega",
-    "tyranitarmega",
-    "sceptilemega",
-    "blazikenmega",
-    "swampertmega",
-    "gardevoirmega",
-    "sableyemega",
-    "mawilemega",
-    "aggronmega",
-    "medichammega",
-    "manectricmega",
-    "sharpedomega",
-    "cameruptmega",
-    "altariamega",
-    "banettemega",
-    "absolmega",
-    "glaliemega",
-    "salamencemega",
-    "metagrossmega",
-    "latiasmega",
-    "latiosmega",
-    "lopunnymega",
-    "garchompmega",
-    "lucariomega",
-    "abomasnowmega",
-    "gallademega",
-    "audinomega",
-    "dianciemega",
-    "mimikyubusted",
-    "mimikyubustedtotem",
-    "wishiwashischool",
-    "shayminsky",
-    "darmanitanzen",
-    "greninjaash",
-    "kyuremwhite",
-    "kyuremblack",
-    "aegislashblade",
-    "meloettapirouette",
-    "cherrimsunshine",
-    "castformsunny",
-    "castformsnowy",
-    "castformrainy"
-  ];
-  for combat_forme in COMBAT_FORMES {
-      learnset_map.shift_remove(*combat_forme);
-  }
+const MOVE_TUTORS: &[u16] = &[520, 519, 518, 338, 307, 308, 434, 620];
+fn make_tutor_learnset(pokemon: &PokemonStats, move_names: &[String]) -> Learnset {
+    Learnset(
+        MOVE_TUTORS
+            .iter()
+            .enumerate()
+            .filter_map(
+                |(index, move_id)| match check_bit(&pokemon.tutor_bits, index) {
+                    true => Some(LearnsetEntry {
+                        move_: to_id(move_names[*move_id as usize].to_owned()),
+                        how: Method::tutor,
+                        level: None,
+                    }),
+                    false => None,
+                },
+            )
+            .collect(),
+    )
+}
+
+fn manual_patches(learnset_map: &mut IndexMap<String, Learnset>) {
+    const COMBAT_FORMES: &[&str] = &[
+        "minior",
+        "venusaurmega",
+        "charizardmegax",
+        "charizardmegay",
+        "blastoisemega",
+        "beedrillmega",
+        "pidgeotmega",
+        "alakazammega",
+        "slowbromega",
+        "gengarmega",
+        "kangaskhanmega",
+        "pinsirmega",
+        "gyaradosmega",
+        "aerodactylmega",
+        "ampharosmega",
+        "steelixmega",
+        "scizormega",
+        "heracrossmega",
+        "houndoommega",
+        "tyranitarmega",
+        "sceptilemega",
+        "blazikenmega",
+        "swampertmega",
+        "gardevoirmega",
+        "sableyemega",
+        "mawilemega",
+        "aggronmega",
+        "medichammega",
+        "manectricmega",
+        "sharpedomega",
+        "cameruptmega",
+        "altariamega",
+        "banettemega",
+        "absolmega",
+        "glaliemega",
+        "salamencemega",
+        "metagrossmega",
+        "latiasmega",
+        "latiosmega",
+        "lopunnymega",
+        "garchompmega",
+        "lucariomega",
+        "abomasnowmega",
+        "gallademega",
+        "audinomega",
+        "dianciemega",
+        "mimikyubusted",
+        "mimikyubustedtotem",
+        "wishiwashischool",
+        "shayminsky",
+        "darmanitanzen",
+        "greninjaash",
+        "kyuremwhite",
+        "kyuremblack",
+        "aegislashblade",
+        "meloettapirouette",
+        "cherrimsunshine",
+        "castformsunny",
+        "castformsnowy",
+        "castformrainy",
+    ];
+
+    for combat_forme in COMBAT_FORMES {
+        learnset_map.shift_remove(*combat_forme);
+    }
+
+    for remove in pokemon::UNUSABLES {
+        learnset_map.shift_remove(*remove);
+    }
 }

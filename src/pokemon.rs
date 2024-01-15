@@ -613,7 +613,7 @@ fn handle_mega_evos(
     }
 }
 
-const UNUSABLES: &[&str] = &[
+pub const UNUSABLES: &[&str] = &[
     "mewtwo",
     "mewtwomegax",
     "mewtwomegay",
@@ -671,6 +671,11 @@ fn manual_patches(dex_map: &mut IndexMap<String, PokemonJs>) {
         dex_map.shift_remove(*remove);
     }
 
-    let porygon_z = dex_map.get_mut("porygonz").unwrap();
-    porygon_z.evos = Some(vec![]);
+    if let Some(porygon_z) = dex_map.get_mut("porygonz") {
+        porygon_z.evos = Some(vec![]);
+    }
+
+    if let Some(porygon_2) = dex_map.get_mut("porygon2") {
+        porygon_2.prevo = Some("Porygon".to_owned());
+    }
 }
