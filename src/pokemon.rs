@@ -332,6 +332,7 @@ pub fn dump_pokes(
     let ability_names = &text_files[text_ids::ABILITY_NAMES].lines;
     let type_names = &text_files[text_ids::TYPE_NAMES].lines;
     let item_names = &text_files[text_ids::ITEM_NAMES].lines;
+    let move_names = &text_files[text_ids::MOVE_NAMES].lines;
 
     for (index, pokemon) in pokemons.iter().take(NORMAL_FORME_COUNT).enumerate() {
         let name = &species_names[index];
@@ -376,7 +377,7 @@ pub fn dump_pokes(
         .join(garc_files::EVOLUTIONS);
     let evolutions =
         garc::read_files::<[PokemonEvolution; 8]>(&GarcFile::read_le(&mut File::open(evo_path)?)?);
-    handle_evos(evolutions, item_names, &mut dex_map, &pokemons);
+    handle_evos(evolutions, item_names, move_names, &mut dex_map, &pokemons);
 
     let mega_evo_path = rom_path
         .join(garc_files::BASE_PATH)
@@ -502,6 +503,7 @@ fn make_poke(
 fn handle_evos(
     evolutions: Vec<[PokemonEvolution; 8]>,
     item_names: &[String],
+    move_names: &[String],
     dex_map: &mut BTreeMap<usize, PokemonJs>,
     pokemons: &[PokemonStats],
 ) {
@@ -579,6 +581,10 @@ fn handle_evos(
                     } else {
                         poke_entry.evoCondition = Some("in the night".to_owned());
                     }
+                }
+                21 => {
+                    poke_entry.evoType = Some("other".to_owned());
+                    poke_entry.evoCondition = Some(format!("level-up with {}", move_names[evo.argument as usize].clone()));
                 }
 
                 _ => {}
@@ -671,11 +677,10 @@ fn manual_patches(dex_map: &mut IndexMap<String, PokemonJs>) {
         dex_map.shift_remove(*remove);
     }
 
-    if let Some(porygon_z) = dex_map.get_mut("porygonz") {
-        porygon_z.evos = Some(vec![]);
-    }
-
     if let Some(porygon_2) = dex_map.get_mut("porygon2") {
         porygon_2.prevo = Some("Porygon".to_owned());
+        porygon_2.evoLevel = None;
+        porygon_2.evoType = Some("other".to_owned());
+        porygon_2.evoCondition = Some("level 35) or Porygon-Z (level-up holding Hotfix at level 40".to_owned());
     }
 }
